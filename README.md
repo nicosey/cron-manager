@@ -20,8 +20,8 @@ A native macOS desktop GUI for managing scheduled jobs — supports both **cron*
 ## Build & run
 
 ```sh
-git clone https://github.com/nicosey/cron-manager
-cd cron-manager
+git clone https://github.com/nicosey/scheduler-ui
+cd scheduler-ui
 
 # Run in development mode (reads your real crontab + LaunchAgents)
 cargo run
@@ -64,6 +64,31 @@ Choose **Cron** in the source selector. Schedule uses standard cron expression f
 ### Adding a launchd agent
 
 Choose **Launchd** in the source selector. Enter a reverse-DNS label (e.g. `com.user.my-task`) — this becomes the plist filename in `~/Library/LaunchAgents/`. The same cron schedule format is used and converted to `StartCalendarInterval` automatically.
+
+```sh
+# Every day at 07:00
+label: com.user.morning-backup   schedule: 0 7 * * *   command: /path/to/backup.sh
+
+# Every weekday at 08:30
+label: com.user.standup-reminder  schedule: 30 8 * * 1-5  command: /usr/local/bin/notify
+```
+
+The app writes a plist to `~/Library/LaunchAgents/<label>.plist` and immediately loads it with `launchctl load`. The generated plist wraps your command in `/bin/sh -c` so shell syntax works as expected.
+
+**Toggle (enable/disable):** runs `launchctl load` or `launchctl unload` on the plist file — the file itself is never modified.
+
+**Delete:** unloads the agent first, then removes the plist file from `~/Library/LaunchAgents/`.
+
+**Existing agents:** on launch, the app reads all `*.plist` files in `~/Library/LaunchAgents/` and checks each one with `launchctl list` to determine if it is currently loaded (enabled). `StartCalendarInterval` keys are translated back to the cron schedule format for display.
+
+### Cron vs launchd — which to use?
+
+| | Cron | Launchd |
+| --- | --- | --- |
+| Config location | user crontab | `~/Library/LaunchAgents/*.plist` |
+| Disabled state | commented-out line in crontab | plist stays on disk; agent is unloaded |
+| Missed runs | skipped if machine was asleep | can be configured to catch up (not yet exposed in UI) |
+| macOS integration | minimal | native — preferred by Apple |
 
 ## Release (macOS app bundle)
 
