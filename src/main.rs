@@ -724,20 +724,20 @@ impl SchedulerApp {
                                     .fill(egui::Color32::TRANSPARENT)
                                     .stroke(egui::Stroke::new(1.0, Theme::BORDER))
                                     .corner_radius(6.0).min_size(egui::vec2(28.0, 28.0))
-                                ).clicked() {
+                                ).on_hover_text("Delete job").clicked() {
                                     delete_id = Some(job.id);
                                 }
 
-                                let (toggle_text, toggle_color) = if job.enabled {
-                                    ("◉", Theme::SUCCESS)
+                                let (toggle_text, toggle_color, toggle_tip) = if job.enabled {
+                                    ("◉", Theme::SUCCESS, "Disable job")
                                 } else {
-                                    ("○", Theme::TEXT_DIM)
+                                    ("○", Theme::TEXT_DIM, "Enable job")
                                 };
                                 if ui.add(egui::Button::new(egui::RichText::new(toggle_text).size(14.0).color(toggle_color))
                                     .fill(egui::Color32::TRANSPARENT)
                                     .stroke(egui::Stroke::new(1.0, Theme::BORDER))
                                     .corner_radius(6.0).min_size(egui::vec2(28.0, 28.0))
-                                ).clicked() {
+                                ).on_hover_text(toggle_tip).clicked() {
                                     toggle_id = Some(job.id);
                                 }
 
