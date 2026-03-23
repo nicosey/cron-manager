@@ -792,7 +792,35 @@ impl SchedulerApp {
                                 });
 
                             ui.add_space(8.0);
-                            ui.label(egui::RichText::new("RUN HISTORY").size(10.0).color(Theme::TEXT_DIM));
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("RUN HISTORY").size(10.0).color(Theme::TEXT_DIM));
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    let log_tip = match &job.source {
+                                        JobSource::Launchd { .. } => "Open ~/Library/Logs in Finder",
+                                        JobSource::Cron           => "Open Console.app",
+                                    };
+                                    if ui.add(egui::Button::new(
+                                            egui::RichText::new("Open Logs").size(10.0).color(Theme::TEXT_DIM))
+                                        .fill(egui::Color32::TRANSPARENT)
+                                        .stroke(egui::Stroke::new(1.0, Theme::BORDER))
+                                        .corner_radius(4.0)
+                                    ).on_hover_text(log_tip).clicked() {
+                                        match &job.source {
+                                            JobSource::Launchd { .. } => {
+                                                let _ = Command::new("open")
+                                                    .arg(format!("{}/Library/Logs",
+                                                        std::env::var("HOME").unwrap_or_default()))
+                                                    .spawn();
+                                            }
+                                            JobSource::Cron => {
+                                                let _ = Command::new("open")
+                                                    .args(["-a", "Console"])
+                                                    .spawn();
+                                            }
+                                        }
+                                    }
+                                });
+                            });
                             ui.add_space(4.0);
 
                             if job.logs.is_empty() {
