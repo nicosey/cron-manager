@@ -7,7 +7,7 @@ use crate::app::SchedulerApp;
 use crate::launchd::delete_launchd_job;
 use crate::models::{JobSource, RunLog, RunStatus};
 use crate::theme::Theme;
-use crate::util::{human_schedule, time_ago};
+use crate::util::{human_schedule, next_run_description, time_ago};
 
 impl SchedulerApp {
     pub fn render_job_list(&mut self, ui: &mut egui::Ui) {
@@ -123,7 +123,39 @@ impl SchedulerApp {
                         if is_open {
                             ui.add_space(8.0);
                             ui.separator();
-                            ui.add_space(4.0);
+                            ui.add_space(6.0);
+
+                            // Schedule details
+                            egui::Frame::new()
+                                .fill(Theme::BG)
+                                .stroke(egui::Stroke::new(1.0, Theme::BORDER))
+                                .corner_radius(6.0)
+                                .inner_margin(egui::Margin::symmetric(12, 10))
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.vertical(|ui| {
+                                            ui.label(egui::RichText::new("FREQUENCY").size(9.0).color(Theme::TEXT_DIM));
+                                            ui.label(egui::RichText::new(human_schedule(&job.schedule))
+                                                .size(13.0).color(egui::Color32::from_rgb(241, 245, 249)));
+                                        });
+                                        ui.add_space(24.0);
+                                        ui.vertical(|ui| {
+                                            ui.label(egui::RichText::new("CRON EXPRESSION").size(9.0).color(Theme::TEXT_DIM));
+                                            ui.label(egui::RichText::new(&job.schedule)
+                                                .size(13.0).color(Theme::TEXT_MUTED));
+                                        });
+                                    });
+                                    ui.add_space(6.0);
+                                    if job.enabled {
+                                        ui.label(egui::RichText::new(next_run_description(&job.schedule))
+                                            .size(11.0).color(Theme::SUCCESS));
+                                    } else {
+                                        ui.label(egui::RichText::new("Paused — not scheduled to run")
+                                            .size(11.0).color(Theme::TEXT_DIM));
+                                    }
+                                });
+
+                            ui.add_space(6.0);
 
                             // Command block
                             egui::Frame::new()
@@ -132,92 +164,45 @@ impl SchedulerApp {
                                 .corner_radius(6.0)
                                 .inner_margin(egui::Margin::symmetric(12, 8))
                                 .show(ui, |ui| {
+                                    ui.label(egui::RichText::new("COMMAND").size(9.0).color(Theme::TEXT_DIM));
+                                    ui.add_space(2.0);
                                     ui.horizontal_wrapped(|ui| {
                                         ui.label(egui::RichText::new("$").size(12.0).color(Theme::TEXT_DIM));
                                         ui.label(egui::RichText::new(&job.command).size(12.0).color(Theme::TEXT_MUTED));
                                     });
-                                    // Show plist path for launchd jobs
                                     if let JobSource::Launchd { plist_path, .. } = &job.source {
+                                        ui.add_space(4.0);
                                         ui.label(egui::RichText::new(plist_path).size(10.0).color(Theme::TEXT_DIM));
                                     }
                                 });
 
-                            ui.add_space(8.0);
-                            ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new("RUN HISTORY").size(10.0).color(Theme::TEXT_DIM));
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    let log_tip = match &job.source {
-                                        JobSource::Launchd { .. } => "Open ~/Library/Logs in Finder",
-                                        JobSource::Cron           => "Open Console.app",
-                                    };
-                                    if ui.add(egui::Button::new(
-                                            egui::RichText::new("Open Logs").size(10.0).color(Theme::TEXT_DIM))
-                                        .fill(egui::Color32::TRANSPARENT)
-                                        .stroke(egui::Stroke::new(1.0, Theme::BORDER))
-                                        .corner_radius(4.0)
-                                    ).on_hover_text(log_tip).clicked() {
-                                        match &job.source {
-                                            JobSource::Launchd { .. } => {
-                                                let _ = Command::new("open")
-                                                    .arg(format!("{}/Library/Logs",
-                                                        std::env::var("HOME").unwrap_or_default()))
-                                                    .spawn();
-                                            }
-                                            JobSource::Cron => {
-                                                let _ = Command::new("open")
-                                                    .args(["-a", "Console"])
-                                                    .spawn();
-                                            }
+                            ui.add_space(6.0);
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                let log_tip = match &job.source {
+                                    JobSource::Launchd { .. } => "Open ~/Library/Logs in Finder",
+                                    JobSource::Cron           => "Open Console.app",
+                                };
+                                if ui.add(egui::Button::new(
+                                        egui::RichText::new("Open Logs").size(10.0).color(Theme::TEXT_DIM))
+                                    .fill(egui::Color32::TRANSPARENT)
+                                    .stroke(egui::Stroke::new(1.0, Theme::BORDER))
+                                    .corner_radius(4.0)
+                                ).on_hover_text(log_tip).clicked() {
+                                    match &job.source {
+                                        JobSource::Launchd { .. } => {
+                                            let _ = Command::new("open")
+                                                .arg(format!("{}/Library/Logs",
+                                                    std::env::var("HOME").unwrap_or_default()))
+                                                .spawn();
+                                        }
+                                        JobSource::Cron => {
+                                            let _ = Command::new("open")
+                                                .args(["-a", "Console"])
+                                                .spawn();
                                         }
                                     }
-                                });
+                                }
                             });
-                            ui.add_space(4.0);
-
-                            if job.logs.is_empty() {
-                                ui.label(egui::RichText::new("No runs yet").size(12.0).color(Theme::TEXT_DIM));
-                            }
-
-                            for (i, log) in job.logs.iter().enumerate() {
-                                let log_bg = if i == 0 {
-                                    egui::Color32::from_rgba_premultiplied(26, 27, 35, 128)
-                                } else {
-                                    egui::Color32::TRANSPARENT
-                                };
-                                egui::Frame::new()
-                                    .fill(log_bg)
-                                    .corner_radius(4.0)
-                                    .inner_margin(egui::Margin::symmetric(10, 6))
-                                    .show(ui, |ui| {
-                                        ui.horizontal(|ui| {
-                                            let log_color = match log.status {
-                                                RunStatus::Success => Theme::SUCCESS,
-                                                RunStatus::Error   => Theme::ERROR,
-                                                RunStatus::Running => Theme::ACCENT,
-                                            };
-                                            let (dot_r, _) = ui.allocate_exact_size(
-                                                egui::vec2(8.0, 8.0), egui::Sense::hover());
-                                            ui.painter().circle_filled(dot_r.center(), 3.5, log_color);
-
-                                            ui.vertical(|ui| {
-                                                ui.horizontal(|ui| {
-                                                    let ts = log.timestamp.with_timezone(&Local)
-                                                        .format("%d %b %H:%M").to_string();
-                                                    ui.label(egui::RichText::new(ts).size(11.0).color(Theme::TEXT_DIM));
-                                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                                        ui.label(egui::RichText::new(&log.duration).size(11.0).color(Theme::TEXT_DIM));
-                                                    });
-                                                });
-                                                let out_color = if log.status == RunStatus::Error {
-                                                    egui::Color32::from_rgb(252, 165, 165)
-                                                } else {
-                                                    Theme::TEXT_MUTED
-                                                };
-                                                ui.label(egui::RichText::new(&log.output).size(12.0).color(out_color));
-                                            });
-                                        });
-                                    });
-                            }
                         }
                     });
 

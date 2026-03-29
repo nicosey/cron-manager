@@ -1,4 +1,4 @@
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Datelike, Duration, TimeZone, Timelike, Utc};
 
 use crate::models::{CronJob, JobSource, RunLog, RunStatus};
 
@@ -82,6 +82,98 @@ pub fn human_schedule(expr: &str) -> String {
         return format!("Monthly on day {}{}", dom, time);
     }
     expr.to_string()
+}
+
+/// Returns a human-readable description of when the job will next run.
+/// Only handles common patterns (every N minutes, hourly, daily, weekly).
+pub fn next_run_description(schedule: &str) -> String {
+    let parts: Vec<&str> = schedule.split_whitespace().collect();
+    if parts.len() != 5 {
+        return schedule.to_string();
+    }
+    let (min, hour, _dom, _mon, dow) = (parts[0], parts[1], parts[2], parts[3], parts[4]);
+
+    let now = Utc::now();
+
+    // Every minute
+    if min == "*" && hour == "*" {
+        return "Next run: in ~1 minute".into();
+    }
+
+    // Every N minutes
+    if let Some(n_str) = min.strip_prefix("*/") {
+        if let Ok(n) = n_str.parse::<u32>() {
+            if hour == "*" {
+                let cur_min = now.minute();
+                let mins_until = n - (cur_min % n);
+                return format!("Next run: in ~{} minute{}", mins_until, if mins_until == 1 { "" } else { "s" });
+            }
+        }
+    }
+
+    // Hourly
+    if hour == "*" {
+        if let Ok(m) = min.parse::<u32>() {
+            let cur_min = now.minute();
+            let mins_until = if m > cur_min { m - cur_min } else { 60 - cur_min + m };
+            return format!("Next run: in ~{} minute{}", mins_until, if mins_until == 1 { "" } else { "s" });
+        }
+    }
+
+    // Every N hours
+    if let Some(n_str) = hour.strip_prefix("*/") {
+        if let Ok(n) = n_str.parse::<u32>() {
+            let cur_hour = now.hour();
+            let hrs_until = n - (cur_hour % n);
+            return format!("Next run: in ~{} hour{}", hrs_until, if hrs_until == 1 { "" } else { "s" });
+        }
+    }
+
+    // Daily or weekly — find next matching time
+    if let (Ok(h), Ok(m)) = (hour.parse::<u32>(), min.parse::<u32>()) {
+        // Collect target weekdays (0=Sun..6=Sat → chrono Sun=0..Sat=6)
+        let target_days: Vec<u32> = if dow == "*" {
+            (0..7).collect()
+        } else {
+            dow.split(',').filter_map(|d| d.parse().ok()).collect()
+        };
+
+        // Search up to 8 days ahead
+        for days_ahead in 0u32..=8 {
+            let candidate = now + Duration::days(days_ahead as i64);
+            // chrono weekday: Mon=0..Sun=6; cron: Sun=0..Sat=6
+            let cron_dow = match candidate.weekday() {
+                chrono::Weekday::Sun => 0u32,
+                chrono::Weekday::Mon => 1,
+                chrono::Weekday::Tue => 2,
+                chrono::Weekday::Wed => 3,
+                chrono::Weekday::Thu => 4,
+                chrono::Weekday::Fri => 5,
+                chrono::Weekday::Sat => 6,
+            };
+            if !target_days.contains(&cron_dow) { continue; }
+            let run_time = Utc.with_ymd_and_hms(
+                candidate.year(), candidate.month(), candidate.day(), h, m, 0
+            ).single();
+            if let Some(rt) = run_time {
+                if rt > now {
+                    let diff = rt.signed_duration_since(now);
+                    let total_mins = diff.num_minutes();
+                    if total_mins < 60 {
+                        return format!("Next run: in {} minute{}", total_mins, if total_mins == 1 { "" } else { "s" });
+                    } else if total_mins < 1440 {
+                        let hrs = diff.num_hours();
+                        return format!("Next run: in {} hour{}", hrs, if hrs == 1 { "" } else { "s" });
+                    } else {
+                        let days = diff.num_days();
+                        return format!("Next run: in {} day{}", days, if days == 1 { "" } else { "s" });
+                    }
+                }
+            }
+        }
+    }
+
+    "Next run: scheduled".into()
 }
 
 pub fn time_ago(dt: &DateTime<Utc>) -> String {
